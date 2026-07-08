@@ -1,0 +1,11 @@
+services:
+  portal:
+    build: .
+    environment:
+      - BASEROW_HOST=${BASEROW_HOST}
+      - BASEROW_TOKEN=${BASEROW_TOKEN}
+      - ACCESS_PASSWORD=${ACCESS_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
+    ports:
+      - "3000"
+    restart: unless-stopped
