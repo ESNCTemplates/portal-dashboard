@@ -1,135 +1,199 @@
 "use client";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect } from "react";
 
-// ---- EDIT THIS PAGE ----
-// Renderer-based dashboard: fetch /api/data, group items, render with REAL JSX components.
-// No innerHTML, no hand-rolled esc() — React escapes every interpolation by default.
-
-function safeHref(url) {
-  // Allow only http/https/mailto — blocks javascript: and data: URLs at the source.
-  try {
-    const u = new URL(url, "https://example.invalid");
-    return ["http:", "https:", "mailto:"].includes(u.protocol) ? url : "#";
-  } catch { return "#"; }
-}
-
-function Card({ item }) {
-  const badges = [item.group, item.status].filter(Boolean);
-  return (
-    <div className="card">
-      <div>
-        <div className="title">{item.title}</div>
-        {badges.length > 0 && (
-          <div className="meta">
-            {badges.map((b, i) => <span className="badge" key={i}>{b}</span>)}
-          </div>
-        )}
-      </div>
-      {item.url && (
-        <a className="open" href={safeHref(item.url)} target="_blank" rel="noopener noreferrer">Open ↗</a>
-      )}
-    </div>
-  );
-}
-
-function Group({ name, items }) {
-  return (
-    <div className="grp">
-      <h2>{name} <span className="count">{items.length}</span></h2>
-      <div className="cards">{items.map((it, i) => <Card item={it} key={it.id ?? i} />)}</div>
-    </div>
-  );
-}
-
-function FilterBar({ groups, active, onPick }) {
-  return (
-    <div className="bar">
-      <span className="label">Group:</span>
-      {["ALL", ...groups].map((g) => (
-        <span key={g} className={"chip" + (active === g ? " on" : "")} onClick={() => onPick(g)}>
-          {g === "ALL" ? "All" : g}
-        </span>
-      ))}
-    </div>
-  );
-}
+// Smile Mas Meme / Reaction Library
+// Browses SM_Meme_Library (Baserow table 5209) and lets you search Giphy and
+// save a result straight onto a "needed" row.
 
 export default function Page() {
-  const [items, setItems] = useState([]);
-  const [updated, setUpdated] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | ready | error
-  const [errMsg, setErrMsg] = useState("");
-  const [filter, setFilter] = useState("ALL");
+  useEffect(() => {
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  const load = useCallback(async () => {
-    setStatus((s) => (s === "ready" ? "ready" : "loading"));
-    try {
-      const r = await fetch("/api/data", { cache: "no-store" });
-      if (r.status === 401) { window.location.href = "/login"; return; }
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Failed to load");
-      setItems(d.items || []);
-      setUpdated(d.updated || Date.now());
-      setStatus("ready");
-    } catch (e) {
-      setErrMsg((e && e.message) || String(e));
-      setStatus("error");
+    let ITEMS = [], filter = "ALL";
+
+    function statusBadgeClass(status) {
+      if (status === "active") return "badge badge-active";
+      if (status === "needed") return "badge badge-needed";
+      return "badge badge-candidate";
     }
+
+    function card(it) {
+      const thumb = it.gifThumb
+        ? '<img class="thumb" src="' + esc(it.gifThumb) + '" alt="' + esc(it.altText || it.title) + '" loading="lazy" />'
+        : '<div class="thumb thumb-empty">No GIF yet</div>';
+      const senders = it.allowedSenders
+        ? '<span class="tag">Senders: ' + esc(it.allowedSenders) + "</span>" : "";
+      const notes = it.notes ? '<div class="notes">' + esc(it.notes) + "</div>" : "";
+      const findBtn = it.status !== "active"
+        ? '<button class="btn small find" data-id="' + it.id + '" data-q="' + esc(it.emotionTag || it.title) + '">Find on Giphy</button>'
+        : '<button class="btn small find ghost" data-id="' + it.id + '" data-q="' + esc(it.emotionTag || it.title) + '">Replace GIF</button>';
+      return (
+        '<div class="mcard">' +
+          thumb +
+          '<div class="mbody">' +
+            '<div class="mtitle">' + esc(it.title) + '<span class="' + statusBadgeClass(it.status) + '">' + esc(it.status) + "</span></div>" +
+            '<div class="mmeta">' + senders + "</div>" +
+            notes +
+            findBtn +
+          "</div>" +
+        "</div>"
+      );
+    }
+
+    function render() {
+      const list = filter === "ALL" ? ITEMS : ITEMS.filter((i) => i.status === filter);
+      $("n-total").textContent = ITEMS.length;
+      $("n-active").textContent = ITEMS.filter((i) => i.status === "active").length;
+      $("n-needed").textContent = ITEMS.filter((i) => i.status === "needed").length;
+      $("grid").innerHTML = list.length
+        ? list.map(card).join("")
+        : '<div class="empty">No reactions in this filter.</div>';
+      $("grid").querySelectorAll(".find").forEach((btn) => {
+        btn.addEventListener("click", () => openPicker(Number(btn.dataset.id), btn.dataset.q));
+      });
+    }
+
+    function wireFilters() {
+      const bar = $("filterbar");
+      bar.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => {
+        bar.querySelectorAll(".chip").forEach((x) => x.classList.remove("on"));
+        c.classList.add("on"); filter = c.dataset.s; render();
+      }));
+    }
+
+    let loading = false;
+    async function load() {
+      if (loading) return; loading = true;
+      const rf = $("refresh"); if (rf) rf.disabled = true;
+      $("refreshed").textContent = "Refreshing…";
+      try {
+        const r = await fetch("/api/memes", { cache: "no-store" });
+        if (r.status === 401) { window.location.href = "/login"; return; }
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Failed to load");
+        ITEMS = d.items || [];
+        $("loading").classList.add("hidden"); $("error").classList.add("hidden"); $("content").classList.remove("hidden");
+        $("refreshed").textContent = "Updated " + new Date(d.updated).toLocaleString();
+        render();
+      } catch (e) {
+        $("loading").classList.add("hidden");
+        const eb = $("error"); eb.classList.remove("hidden");
+        eb.textContent = "Could not load the library:\n" + ((e && e.message) || e);
+        $("refreshed").textContent = "Refresh failed";
+      } finally { loading = false; if (rf) rf.disabled = false; }
+    }
+
+    let currentRowId = null;
+    function openPicker(rowId, query) {
+      currentRowId = rowId;
+      $("picker-search").value = query || "";
+      $("picker-results").innerHTML = "";
+      $("picker-status").textContent = "";
+      $("picker").classList.remove("hidden");
+      if (query) searchGiphy(query);
+    }
+    function closePicker() {
+      $("picker").classList.add("hidden");
+      currentRowId = null;
+    }
+
+    async function searchGiphy(q) {
+      $("picker-results").innerHTML = '<div class="picker-loading">Searching…</div>';
+      try {
+        const r = await fetch("/api/giphy?q=" + encodeURIComponent(q), { cache: "no-store" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Giphy search failed");
+        const results = d.results || [];
+        $("picker-results").innerHTML = results.length
+          ? results.map((g) =>
+              '<div class="gresult" data-url="' + esc(g.gifUrl) + '" data-giphyid="' + esc(g.giphyId) + '" data-title="' + esc(g.title) + '">' +
+              '<img src="' + esc(g.previewUrl) + '" alt="' + esc(g.title) + '" loading="lazy"/></div>'
+            ).join("")
+          : '<div class="picker-empty">No results — try a different search.</div>';
+        $("picker-results").querySelectorAll(".gresult").forEach((el) => {
+          el.addEventListener("click", () => saveGif(el.dataset.url, el.dataset.giphyid, el.dataset.title));
+        });
+      } catch (e) {
+        $("picker-results").innerHTML = "";
+        $("picker-status").textContent = "Search error: " + ((e && e.message) || e);
+      }
+    }
+
+    async function saveGif(gifUrl, giphyId, title) {
+      if (!currentRowId) return;
+      $("picker-status").textContent = "Saving…";
+      try {
+        const r = await fetch("/api/action", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "attach_gif", rowId: currentRowId, gifUrl, giphyId, altText: title }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Save failed");
+        $("picker-status").textContent = "Saved ✓";
+        setTimeout(() => { closePicker(); load(); }, 500);
+      } catch (e) {
+        $("picker-status").textContent = "Save error: " + ((e && e.message) || e);
+      }
+    }
+
+    const rf = $("refresh"); if (rf) rf.addEventListener("click", () => load());
+    const lo = $("logout"); if (lo) lo.addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST" }); window.location.href = "/login";
+    });
+    $("picker-close").addEventListener("click", closePicker);
+    $("picker-go").addEventListener("click", () => searchGiphy($("picker-search").value));
+    $("picker-search").addEventListener("keydown", (e) => { if (e.key === "Enter") searchGiphy($("picker-search").value); });
+
+    wireFilters();
+    load();
   }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const groups = useMemo(
-    () => Array.from(new Set(items.map((i) => i.group || "Ungrouped"))).sort(), [items]);
-
-  const visible = useMemo(
-    () => (filter === "ALL" ? items : items.filter((i) => (i.group || "Ungrouped") === filter)),
-    [items, filter]);
-
-  const grouped = useMemo(() => {
-    const g = {};
-    for (const it of visible) (g[it.group || "Ungrouped"] ||= []).push(it);
-    return Object.keys(g).sort().map((k) => [k, g[k]]);
-  }, [visible]);
-
-  async function logout() {
-    await fetch("/api/logout", { method: "POST" });
-    window.location.href = "/login";
-  }
 
   return (
     <div className="wrap">
       <header className="top">
         <div>
-          <h1>Portal Dashboard</h1>
-          <div className="sub">Live, read-only view from Baserow</div>
+          <h1>Smile Mas Meme Library</h1>
+          <div className="sub">Reaction GIFs used across Smile Mas videos — live from Baserow</div>
         </div>
         <div className="topright">
-          <span className="refreshed">
-            {status === "loading" && "Refreshing…"}
-            {status === "error" && "Refresh failed"}
-            {status === "ready" && updated &&
-              `Updated ${new Date(updated).toLocaleString()} · ${items.length} items`}
-          </span>
-          <button className="btn" onClick={load} disabled={status === "loading"}>↻ Refresh</button>
-          <button className="btn" onClick={logout}>Log out</button>
+          <span className="refreshed" id="refreshed">Loading…</span>
+          <button className="btn" id="refresh">↻ Refresh</button>
+          <button className="btn" id="logout">Log out</button>
         </div>
       </header>
 
-      {status === "loading" && items.length === 0 && <div className="loading">Loading…</div>}
-      {status === "error" && <div className="err-box">Could not load data:{"\n"}{errMsg}</div>}
-
-      {items.length > 0 && (
-        <div>
-          <div className="kpis">
-            <div className="kpi"><div className="n">{visible.length}</div><div className="l">Total</div></div>
-          </div>
-          <FilterBar groups={groups} active={filter} onPick={setFilter} />
-          {grouped.length > 0
-            ? grouped.map(([name, its]) => <Group name={name} items={its} key={name} />)
-            : <div className="empty">No items.</div>}
+      <div id="content" className="hidden">
+        <div className="kpis">
+          <div className="kpi"><div className="n" id="n-total">0</div><div className="l">Total reactions</div></div>
+          <div className="kpi"><div className="n" id="n-active">0</div><div className="l">Active</div></div>
+          <div className="kpi"><div className="n" id="n-needed">0</div><div className="l">Needed</div></div>
         </div>
-      )}
+        <div className="bar" id="filterbar">
+          <span className="label">Status:</span>
+          <span className="chip on" data-s="ALL">All</span>
+          <span className="chip" data-s="active">Active</span>
+          <span className="chip" data-s="needed">Needed</span>
+          <span className="chip" data-s="candidate">Candidate</span>
+        </div>
+        <div id="grid" className="grid"></div>
+      </div>
+      <div id="loading" className="loading">Loading…</div>
+      <div id="error" className="err-box hidden"></div>
+
+      <div id="picker" className="picker hidden">
+        <div className="picker-card">
+          <div className="picker-head">
+            <input id="picker-search" placeholder="Search Giphy…" />
+            <button className="btn" id="picker-go">Search</button>
+            <button className="btn ghost" id="picker-close">Close</button>
+          </div>
+          <div className="picker-status" id="picker-status"></div>
+          <div className="picker-results" id="picker-results"></div>
+        </div>
+      </div>
     </div>
   );
 }

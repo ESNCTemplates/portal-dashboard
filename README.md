@@ -1,12 +1,28 @@
-# Portal Dashboard (v2 — JSX render, Coolify-ready)
+# Portal Dashboard (scaffold)
 
-Turnkey, runnable Next.js portal over Baserow. Renders with real React components (no innerHTML).
+A password-walled, read-only Next.js dashboard over Baserow. The Baserow token lives only in the
+serverless API route (`app/api/data/route.js`) and is never sent to the browser.
 
-## Deploy on Coolify
-1. Push this folder to a **public** git repo (rename `gitignore.txt` -> `.gitignore` first).
-2. In Coolify: New Resource -> Public Repository -> this repo. Build pack: **dockerfile**. Port: **3000**.
-3. Set env vars: BASEROW_HOST, BASEROW_TOKEN (read-only, scoped), BASEROW_TABLE_ID, ACCESS_PASSWORD, SESSION_SECRET.
-4. Deploy. Open the FQDN -> you should hit the password gate.
+## Fill in
+1. `app/api/data/route.js` — set `TABLES` and the `normalize()` mapping.
+2. `app/page.js` — adapt KPIs, grouping, and per-card fields.
+3. Rename `gitignore.txt` → `.gitignore`.
 
-## Edit before first real data
-- `app/api/data/route.js`: set BASEROW_TABLE_ID and map your field names in `normalize()`.
+## Env (Vercel project settings + local `.env.local`)
+| Var | Value |
+|---|---|
+| `BASEROW_HOST` | Baserow base URL, no trailing slash |
+| `BASEROW_TOKEN` | DB token scoped read-only to exactly the tables read |
+| `ACCESS_PASSWORD` | Shared password to view the dashboard |
+| `SESSION_SECRET` | `openssl rand -hex 32` |
+
+## Run / build
+```bash
+npm install
+npm run dev          # http://localhost:3000
+npm run build        # verify in a LOCAL dir, not a cloud-synced mount (see skill gotchas)
+```
+
+## Deploy
+Push to Vercel, set the four env vars (Production + Preview), deploy. Create the scoped Baserow
+DB token under Baserow → Settings → Database tokens.

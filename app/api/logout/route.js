@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
+
 export async function POST() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.set("portal_session", "", { httpOnly: true, path: "/", maxAge: 0 });
+  res.cookies.set("portal_auth", "", { httpOnly: true, path: "/", maxAge: 0 });
   return res;
 }
