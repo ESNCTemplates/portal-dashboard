@@ -42,7 +42,6 @@ async function fetchAll() {
   return out;
 }
 
-// single_select fields come back as {id, value, color}; flatten with this.
 const sel = (x) => (x && typeof x === "object" ? x.value || "" : x || "");
 
 function normalize(row) {
@@ -51,6 +50,10 @@ function normalize(row) {
   return {
     id: row.id,
     title: row["Reaction Name"] || String(row.id),
+    bucket: sel(row.Bucket) || "",
+    tone: sel(row.Tone) || "",
+    whenToUse: row["When To Use"] || "",
+    characterFit: row["Character Fit / Keywords"] || "",
     status: sel(row.Status) || "candidate",
     emotionTag: row["Emotion Tag"] || "",
     allowedSenders: row["Allowed Senders"] || "",

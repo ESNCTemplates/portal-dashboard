@@ -2,14 +2,15 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Write-scoped actions on SM_Meme_Library (table 5209). Uses a SEPARATE token
-// from the read route (BASEROW_WRITE_TOKEN), scoped read+update only on this
-// one table. No delete permission is required or expected.
+// Write actions on SM_Meme_Library (table 5209). Uses a SEPARATE token from the
+// read route (BASEROW_WRITE_TOKEN), scoped create+read+update on this one table.
+// No delete permission is required or expected.
 
 const HOST = (process.env.BASEROW_HOST || "").replace(/\/+$/, "");
 const WTOKEN = process.env.BASEROW_WRITE_TOKEN || "";
 const TABLE_ID = 5209;
 const STATUS_ALLOWLIST = ["active", "needed", "candidate"];
+const TONE_ALLOWLIST = ["comedic", "dramatic", "wholesome", "sarcastic", "playful"];
 
 function J(body, status = 200) {
   return NextResponse.json(body, { status });
@@ -52,6 +53,17 @@ async function patchRow(rowId, fields) {
   return d;
 }
 
+async function createRow(fields) {
+  const r = await tfetch(`${HOST}/api/database/rows/table/${TABLE_ID}/?user_field_names=true`, {
+    method: "POST",
+    headers: { Authorization: `Token ${WTOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d?.detail || d?.error || `row POST HTTP ${r.status}`);
+  return d;
+}
+
 export async function POST(req) {
   if (!HOST || !WTOKEN) {
     return J({ error: "BASEROW_HOST and BASEROW_WRITE_TOKEN must be set." }, 500);
@@ -67,18 +79,38 @@ export async function POST(req) {
 
   try {
     switch (action) {
-      case "attach_gif": {
-        const { rowId, gifUrl, giphyId, altText } = body;
-        if (!rowId || !gifUrl) return J({ error: "rowId and gifUrl are required" }, 400);
-
+      // Add a NEW variant GIF into a bucket (creates a new row).
+      case "add_variant": {
+        const { bucket, gifUrl, giphyId, altText, tone, whenToUse, characterFit } = body;
+        if (!bucket || !gifUrl) return J({ error: "bucket and gifUrl are required" }, 400);
+        if (tone && !TONE_ALLOWLIST.includes(tone)) {
+          return J({ error: `tone must be one of ${TONE_ALLOWLIST.join(", ")}` }, 400);
+        }
         const uploaded = await uploadViaUrl(gifUrl);
         const fields = {
+          "Reaction Name": `${bucket} — variant`,
+          Bucket: bucket,
           "GIF File": [{ name: uploaded.name }],
+          "Emotion Tag": bucket,
           Status: "active",
         };
         if (giphyId) fields["Giphy ID"] = String(giphyId);
         if (altText) fields["Alt Text"] = String(altText).slice(0, 500);
+        if (tone) fields["Tone"] = tone;
+        if (whenToUse) fields["When To Use"] = String(whenToUse).slice(0, 2000);
+        if (characterFit) fields["Character Fit / Keywords"] = String(characterFit).slice(0, 2000);
+        const created = await createRow(fields);
+        return J({ ok: true, row: created });
+      }
 
+      // Attach a GIF onto an EXISTING row (fill a "needed" slot or replace).
+      case "attach_gif": {
+        const { rowId, gifUrl, giphyId, altText } = body;
+        if (!rowId || !gifUrl) return J({ error: "rowId and gifUrl are required" }, 400);
+        const uploaded = await uploadViaUrl(gifUrl);
+        const fields = { "GIF File": [{ name: uploaded.name }], Status: "active" };
+        if (giphyId) fields["Giphy ID"] = String(giphyId);
+        if (altText) fields["Alt Text"] = String(altText).slice(0, 500);
         const updated = await patchRow(rowId, fields);
         return J({ ok: true, row: updated });
       }
