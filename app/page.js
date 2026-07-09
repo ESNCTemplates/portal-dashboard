@@ -220,6 +220,7 @@ export default function Page() {
         </div>
         <div className="topright">
           <span className="refreshed" id="refreshed">Loading...</span>
+          <a className="btn" href="/dashboard">Dashboard</a>
           <button className="btn" id="refresh">Refresh</button>
           <button className="btn" id="logout">Log out</button>
         </div>
