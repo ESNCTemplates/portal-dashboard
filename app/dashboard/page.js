@@ -107,6 +107,12 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <nav className="tabs">
+        <a className="tab" href="/">Library</a>
+        <a className="tab" href="/create">Create</a>
+        <a className="tab on" href="/dashboard">Dashboard</a>
+      </nav>
+
       <div id="dloading" className="loading">Loading...</div>
       <div id="derror" className="err-box hidden"></div>
 

@@ -124,6 +124,45 @@ export async function POST(req) {
         return J({ ok: true, row: updated });
       }
 
+      // Enqueue a "made" generation job (portal is the intake; the Meme Maker
+      // pipeline, which has admin rights, picks it up and generates the image).
+      case "queue_generation": {
+        const { bucket, proposedBucket, character, tone, whenToUse, reactionName,
+                topCaption, bottomCaption, imagePrompt, altText } = body;
+        const bkt = (bucket || "").trim();
+        const newBkt = (proposedBucket || "").trim();
+        if (!bkt && !newBkt) return J({ error: "bucket or proposedBucket is required" }, 400);
+        if (!imagePrompt && !topCaption && !bottomCaption) {
+          return J({ error: "provide an imagePrompt or a caption" }, 400);
+        }
+        if (tone && !TONE_ALLOWLIST.includes(tone)) {
+          return J({ error: `tone must be one of ${TONE_ALLOWLIST.join(", ")}` }, 400);
+        }
+        const recipe =
+          "ENGINE: Imagen (character consistency)\n" +
+          (topCaption ? "CAPTION TOP: " + topCaption + "\n" : "") +
+          (bottomCaption ? "CAPTION BOTTOM: " + bottomCaption + "\n" : "") +
+          "\nIMAGE PROMPT:\n" + (imagePrompt || "(none provided)");
+        const label = bkt || newBkt;
+        const fields = {
+          "Reaction Name": (reactionName || `${label} — ${character || "new"}`).slice(0, 200),
+          "Emotion Tag": label,
+          Status: "candidate",
+          Source: "made",
+          Generator: "ai-image",
+          "Job Status": "queued",
+          Recipe: recipe,
+        };
+        if (bkt) fields["Bucket"] = bkt;          // existing bucket -> set the single-select
+        else fields["Proposed Bucket"] = newBkt;  // new bucket -> pipeline materializes it
+        if (character) fields["Character"] = String(character).slice(0, 120);
+        if (tone) fields["Tone"] = tone;
+        if (whenToUse) fields["When To Use"] = String(whenToUse).slice(0, 2000);
+        if (altText) fields["Alt Text"] = String(altText).slice(0, 500);
+        const created = await createRow(fields);
+        return J({ ok: true, row: created });
+      }
+
       default:
         return J({ error: "unknown action" }, 400);
     }
